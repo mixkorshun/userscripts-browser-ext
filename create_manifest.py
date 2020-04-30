@@ -1,0 +1,112 @@
+#! /usr/bin/env python3
+
+import json
+import os
+from glob import glob
+
+EXTENSION_NAME = 'CustomIt'
+EXTENSION_VERSION = '1.0'
+
+
+def main():
+    manifest = {
+        "name": EXTENSION_NAME,
+        "version": EXTENSION_VERSION,
+        "description": "Apply custom script to web pages",
+        "manifest_version": 2,
+        "background": {
+            "scripts": ["background.js"]
+        },
+        "browser_action": {
+            "default_title": "Reload scripts",
+        },
+        "permissions": ["management"],
+        "content_scripts": []
+    }
+
+    for js_file in glob('scripts/*.js'):
+        with open(js_file, 'r') as fp:
+            doc = read_doc(fp)
+
+            if not doc:
+                continue
+
+            content_script = {
+                "matches": [],
+                "exclude_matches": [],
+                "js": [],
+                "css": [],
+            }
+
+            fp.seek(len(doc))
+            if fp.read(128).strip():
+                content_script["js"].append(js_file)
+
+            css_file = js_file[:-3] + '.css'
+            if os.path.exists(css_file):
+                content_script["css"].append(css_file)
+
+            lines = (line.strip() for line in doc.splitlines(False))
+            lines = (line for line in lines if line)
+
+            for line in lines:
+                if line.startswith('matches: '):
+                    content_script['matches'].append(line[8:].strip())
+                elif line.startswith('exclude_matches: '):
+                    content_script['exclude_matches'].append(line[16:].strip())
+                elif line.startswith('run_at: '):
+                    if 'run_at' in content_script:
+                        continue
+
+                    content_script['run_at'] = line[7:].strip()
+                elif line.startswith('all_frames: '):
+                    if 'all_frames' in content_script:
+                        continue
+
+                    content_script['all_frames'] = {
+                        'true': True,
+                        'false': False,
+                    }.get(line[11:].strip(), None)
+
+            manifest["content_scripts"].append(content_script)
+
+    with open('manifest.json', 'w') as fp:
+        fp.write(json.dumps(manifest, indent=4))
+
+
+signatures = (
+    ('```', '```'),
+    ('/**', ' */')
+)
+
+
+def detect_signature(text):
+    for (start, end) in signatures:
+        if text.startswith(start + '\n'):
+            return (start, end)
+
+    return None
+
+
+def read_doc(fp):
+    content = fp.read(8)
+
+    signature = detect_signature(content)
+    if not signature:
+        return None
+
+    while 1:
+        chunk = fp.read(512)
+        if not chunk:
+            return None
+
+        content += chunk
+
+        doc_end = content.rfind('\n' + signature[1])
+        if doc_end != -1:
+            break
+
+    return content[0:doc_end + len(signature[1]) + 1]
+
+
+main()

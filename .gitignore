@@ -1,0 +1,4 @@
+/.idea
+/scripts/*
+!/scripts/.gitkeep
+/manifest.json
